@@ -1,0 +1,221 @@
+// Solana Playground Script
+// Copy and paste this into the client.ts file in Solana Playground
+
+// --- Constants & Polyfills ---
+
+// constants from @solana/spl-token
+const TOKEN_2022_PROGRAM_ID = new web3.PublicKey("TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb");
+const ASSOCIATED_TOKEN_PROGRAM_ID = new web3.PublicKey("ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL");
+
+// getAssociatedTokenAddressSync polyfill
+function getAssociatedTokenAddressSync(
+    mint,
+    owner,
+    allowOwnerOffCurve = false,
+    programId = new web3.PublicKey("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"),
+    associatedTokenProgramId = ASSOCIATED_TOKEN_PROGRAM_ID
+) {
+    if (!allowOwnerOffCurve && !web3.PublicKey.isOnCurve(owner.toBuffer())) {
+        throw new Error('TokenOwnerOffCurveError');
+    }
+
+    const [address] = web3.PublicKey.findProgramAddressSync(
+        [owner.toBuffer(), programId.toBuffer(), mint.toBuffer()],
+        associatedTokenProgramId
+    );
+
+    return address;
+}
+
+// --- Client Logic (Adapted from badge-program.ts) ---
+
+const PROGRAM_ID = pg.program.programId; // Use the deployed program ID from PG
+// Note: In SolPG, wallet is available at pg.wallet. 
+// We generally don't hardcode PLATFORM_WALLET. We'll generate one for testing.
+
+const getBadgePDA = (creator, badgeId, programId = PROGRAM_ID) => {
+    return web3.PublicKey.findProgramAddressSync(
+        [Buffer.from("badge"), creator.toBuffer(), Buffer.from(badgeId)],
+        programId
+    );
+};
+
+const getMintPDA = (badgePDA, programId = PROGRAM_ID) => {
+    return web3.PublicKey.findProgramAddressSync(
+        [Buffer.from("mint"), badgePDA.toBuffer()],
+        programId
+    );
+};
+
+class BadgeClient {
+    program: any;
+
+    constructor(program) {
+        this.program = program;
+    }
+
+    async createInitializeBadgeInstruction(
+        creator,
+        badgeId,
+        uri,
+        price
+    ) {
+        const [badgePDA] = getBadgePDA(creator, badgeId, this.program.programId);
+        const [mintPDA] = getMintPDA(badgePDA, this.program.programId);
+
+        return await this.program.methods
+            .initializeBadge(badgeId, uri, new anchor.BN(price))
+            .accounts({
+                creator,
+                badge: badgePDA,
+                mint: mintPDA,
+                systemProgram: web3.SystemProgram.programId,
+                tokenProgram: TOKEN_2022_PROGRAM_ID,
+            })
+            .instruction();
+    }
+
+    async createMintBadgeInstruction(
+        payer,
+        creator, // The creator of the badge
+        badgeId,
+        platformWallet
+    ) {
+        const [badgePDA] = getBadgePDA(creator, badgeId, this.program.programId);
+        const [mintPDA] = getMintPDA(badgePDA, this.program.programId);
+
+        const recipientTokenAccount = getAssociatedTokenAddressSync(
+            mintPDA,
+            payer,
+            false,
+            TOKEN_2022_PROGRAM_ID,
+            ASSOCIATED_TOKEN_PROGRAM_ID
+        );
+
+        return await this.program.methods
+            .mintBadge()
+            .accounts({
+                payer,
+                creator,
+                badge: badgePDA,
+                mint: mintPDA,
+                recipientTokenAccount,
+                platformWallet: platformWallet,
+                systemProgram: web3.SystemProgram.programId,
+                tokenProgram: TOKEN_2022_PROGRAM_ID,
+                associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
+            })
+            .instruction();
+    }
+}
+
+// --- Execution / Test Logic ---
+
+(async () => {
+    console.log("Running Badge Platform Client Script...");
+
+    const program = pg.program;
+    const client = new BadgeClient(program);
+
+    // Setup Test Accounts
+    // In SolPG, pg.wallet is the default payer usually.
+    // We will create fresh keypairs for creator/buyer to simulate the full flow properly, 
+    // funded by the pg.wallet if possible, or just expect them to be funded.
+    // Actually, in SolPG it's easier to use pg.wallet as the primary actor, 
+    // but the test logic uses separate creator/buyer. Let's stick to generating them and funding them.
+
+    // NOTE: Airdrops might be rate limited on devnet. 
+    // If this fails, consider using pg.wallet.publicKey for one of roles.
+
+    const creator = web3.Keypair.generate();
+    const buyer = web3.Keypair.generate();
+    // Use the specific platform wallet address expected by the program (from error logs)
+    const platformWallet = new web3.PublicKey("GnA7QBSZKk1YAb1aGRk5Ze5Up6jqDqEwDCYEyEtHdy4s");
+
+    const badgeId = "badge-" + Math.floor(Math.random() * 10000); // Random ID to avoid collision
+    const uri = "https://example.com/badge.json";
+    const price = 1000000; // 0.001 SOL
+
+    console.log("Creator:", creator.publicKey.toString());
+    console.log("Buyer:", buyer.publicKey.toString());
+    console.log("Badge ID:", badgeId);
+
+    // Fund accounts
+    console.log("Funding accounts...");
+    try {
+        const tx = new web3.Transaction();
+        tx.add(
+            web3.SystemProgram.transfer({
+                fromPubkey: pg.wallet.publicKey,
+                toPubkey: creator.publicKey,
+                lamports: 0.1 * web3.LAMPORTS_PER_SOL,
+            }),
+            web3.SystemProgram.transfer({
+                fromPubkey: pg.wallet.publicKey,
+                toPubkey: buyer.publicKey,
+                lamports: 0.1 * web3.LAMPORTS_PER_SOL,
+            })
+        );
+        await web3.sendAndConfirmTransaction(pg.connection, tx, [pg.wallet.keypair]);
+        console.log("Accounts funded.");
+    } catch (e) {
+        console.error("Funding failed. Ensure you have SOL in your playground wallet.", e);
+        // Fallback: Continue, maybe they have funds or we use localnet behavior
+    }
+
+    // 1. Initialize Badge
+    console.log("Initializing Badge...");
+    try {
+        const initIx = await client.createInitializeBadgeInstruction(
+            creator.publicKey,
+            badgeId,
+            uri,
+            price
+        );
+        const initTx = new web3.Transaction().add(initIx);
+        const initSig = await web3.sendAndConfirmTransaction(pg.connection, initTx, [creator]);
+        console.log("Badge Initialized. Sig:", initSig);
+    } catch (err) {
+        console.error("Failed to initialize badge:", err);
+    }
+
+    // 2. Mint Badge
+    console.log("Minting Badge...");
+    try {
+        const mintIx = await client.createMintBadgeInstruction(
+            buyer.publicKey,
+            creator.publicKey,
+            badgeId,
+            platformWallet
+        );
+        const mintTx = new web3.Transaction().add(mintIx);
+        const mintSig = await web3.sendAndConfirmTransaction(pg.connection, mintTx, [buyer]);
+        console.log("Badge Minted. Sig:", mintSig);
+    } catch (err) {
+        console.error("Failed to mint badge:", err);
+    }
+
+    // Verify
+    const [badgePDA] = getBadgePDA(creator.publicKey, badgeId, program.programId);
+    const [mintPDA] = getMintPDA(badgePDA, program.programId);
+    const recipientTokenAccount = getAssociatedTokenAddressSync(
+        mintPDA,
+        buyer.publicKey,
+        false,
+        TOKEN_2022_PROGRAM_ID
+    );
+
+    console.log("Verifying token balance...");
+    try {
+        const balance = await pg.connection.getTokenAccountBalance(recipientTokenAccount);
+        console.log("Buyer Badge Balance:", balance.value.amount);
+        if (balance.value.amount === "1") {
+            console.log("SUCCESS: Badge flow completed!");
+        } else {
+            console.log("FAILURE: Unexpected balance.");
+        }
+    } catch (e) {
+        console.log("Could not fetch token balance (might not exist if mint failed).");
+    }
+
+})();

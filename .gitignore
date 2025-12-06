@@ -1,0 +1,13 @@
+.anchor/
+.DS_Store
+target/
+**/*.rs.bk
+node_modules/
+test-ledger/
+.yarn/
+.yarnrc.yml
+yarn-error.log
+npm-debug.log
+.pnp.*
+
+!target/idl/
