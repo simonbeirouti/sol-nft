@@ -87,4 +87,34 @@ export class BadgeClient {
             })
             .instruction();
     }
+
+    // FAN-06: Create burn badge instruction
+    async createBurnBadgeInstruction(
+        owner: PublicKey,
+        creator: PublicKey,
+        badgeId: string
+    ) {
+        const [badgePDA] = getBadgePDA(creator, badgeId, this.program.programId);
+        const [mintPDA] = getMintPDA(badgePDA, this.program.programId);
+
+        const ownerTokenAccount = getAssociatedTokenAddressSync(
+            mintPDA,
+            owner,
+            false,
+            TOKEN_2022_PROGRAM_ID,
+            ASSOCIATED_TOKEN_PROGRAM_ID
+        );
+
+        return await this.program.methods
+            .burnBadge()
+            .accounts({
+                owner,
+                badge: badgePDA,
+                mint: mintPDA,
+                ownerTokenAccount,
+                tokenProgram: TOKEN_2022_PROGRAM_ID,
+                associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
+            })
+            .instruction();
+    }
 }

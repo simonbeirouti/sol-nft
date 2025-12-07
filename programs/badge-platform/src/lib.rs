@@ -25,4 +25,11 @@ pub mod badge_platform {
     ) -> Result<()> {
         instructions::mint_badge::handler(ctx)
     }
+
+    // FAN-06: Burn badge functionality
+    pub fn burn_badge(
+        ctx: Context<BurnBadge>
+    ) -> Result<()> {
+        instructions::burn_badge::handler(ctx)
+    }
 }
