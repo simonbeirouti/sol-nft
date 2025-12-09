@@ -8,10 +8,10 @@ import {
     ASSOCIATED_TOKEN_PROGRAM_ID
 } from "@solana/spl-token";
 
-// Replace with your actual Program ID if needed, or rely on workspace
-export const PROGRAM_ID = new PublicKey("Fg6PaFpoGXkYsidMpWTK6W2BeZ7FEfcYkg476zPFsLnS");
-// Replace with actual platform wallet - tests should probably override or fund this
-export const PLATFORM_WALLET = new PublicKey("11111111111111111111111111111111");
+// Deployed to Devnet - Program ID
+export const PROGRAM_ID = new PublicKey("hGDKLgKhMAYSJS4TNRnQJc3gRLSd6xYyK11JcnbUrn5");
+// Platform wallet (receives 10% fee)
+export const PLATFORM_WALLET = new PublicKey("2p8QvK4XLymfAFrdPxJChT5E44bKxHpsguL4K2rjJ1ZU");
 
 export const getBadgePDA = (creator: PublicKey, badgeId: string, programId: PublicKey = PROGRAM_ID) => {
     return PublicKey.findProgramAddressSync(
